@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vector-agent-config
+  namespace: logging
+  labels:
+    app.kubernetes.io/name: vector-agent
+    app.kubernetes.io/part-of: vector-observability-pipeline
+data:
+  agent.yaml: |
+    data_dir: /vector-data-dir
+
+    sources:
+      kubernetes_logs:
+        type: kubernetes_logs
+        exclude_paths_glob_patterns:
+          - /var/log/pods/logging_*/**
+
+    transforms:
+      add_cluster_metadata:
+        type: remap
+        inputs:
+          - kubernetes_logs
+        source: |
+          .cluster_name = "endurance"
+
+    sinks:
+      centralizer:
+        type: vector
+        inputs:
+          - add_cluster_metadata
+        address: "vector-centralizer.logging.svc.cluster.local:6000"
+        version: "2"

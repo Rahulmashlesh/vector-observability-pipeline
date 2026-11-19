@@ -1,0 +1,30 @@
+# Vector agent tier — runs as a DaemonSet on every schedulable node.
+# Stage 2: kubernetes_logs source → vector sink forwarding to centralizer.
+
+data_dir: /vector-data-dir
+
+sources:
+  kubernetes_logs:
+    type: kubernetes_logs
+    # Exclude our own logging namespace to avoid a feedback loop.
+    exclude_paths_glob_patterns:
+      - /var/log/pods/logging_*/**
+
+transforms:
+  add_cluster_metadata:
+    type: remap
+    inputs:
+      - kubernetes_logs
+    source: |
+      # Attach a static cluster_name tag so every log line carries
+      # its origin cluster.
+      .cluster_name = "endurance"
+
+sinks:
+  centralizer:
+    type: vector
+    inputs:
+      - add_cluster_metadata
+    # DNS name of the centralizer Service in the same namespace.
+    address: "vector-centralizer.logging.svc.cluster.local:6000"
+    version: "2"

@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vector-centralizer-config
+  namespace: logging
+  labels:
+    app.kubernetes.io/name: vector-centralizer
+    app.kubernetes.io/part-of: vector-observability-pipeline
+data:
+  centralizer.yaml: |
+    data_dir: /vector-data-dir
+
+    sources:
+      agent_input:
+        type: vector
+        address: "0.0.0.0:6000"
+        version: "2"
+
+    transforms:
+      enrich_pipeline_metadata:
+        type: remap
+        inputs:
+          - agent_input
+        source: |
+          .pipeline_tier = "centralizer"
+
+    sinks:
+      console:
+        type: console
+        inputs:
+          - enrich_pipeline_metadata
+        encoding:
+          codec: json

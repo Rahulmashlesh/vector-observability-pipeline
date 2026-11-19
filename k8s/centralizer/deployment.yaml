@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vector-centralizer
+  namespace: logging
+  labels:
+    app.kubernetes.io/name: vector-centralizer
+    app.kubernetes.io/component: centralizer
+    app.kubernetes.io/part-of: vector-observability-pipeline
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vector-centralizer
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vector-centralizer
+        app.kubernetes.io/component: centralizer
+        app.kubernetes.io/part-of: vector-observability-pipeline
+    spec:
+      containers:
+        - name: vector
+          image: timberio/vector:0.42.0-distroless-static
+          args:
+            - --config
+            - /etc/vector/centralizer.yaml
+          ports:
+            - name: vector
+              containerPort: 6000
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/vector
+              readOnly: true
+            - name: vector-data
+              mountPath: /vector-data-dir
+          securityContext:
+            runAsUser: 0
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+
+      volumes:
+        - name: config
+          configMap:
+            name: vector-centralizer-config
+        - name: vector-data
+          emptyDir: {}
+
+      terminationGracePeriodSeconds: 60
