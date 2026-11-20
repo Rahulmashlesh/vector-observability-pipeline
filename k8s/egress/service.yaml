@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: vector-egress
+  namespace: logging
+  labels:
+    app.kubernetes.io/name: vector-egress
+    app.kubernetes.io/part-of: vector-observability-pipeline
+spec:
+  selector:
+    app.kubernetes.io/name: vector-egress
+  ports:
+    - name: vector
+      port: 6000
+      targetPort: 6000
+      protocol: TCP
+  type: ClusterIP

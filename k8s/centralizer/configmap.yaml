@@ -25,9 +25,13 @@ data:
           .pipeline_tier = "centralizer"
 
     sinks:
-      console:
-        type: console
+      egress:
+        type: vector
         inputs:
           - enrich_pipeline_metadata
-        encoding:
-          codec: json
+        address: "vector-egress.logging.svc.cluster.local:6000"
+        version: "2"
+        buffer:
+          type: memory
+          max_events: 10000
+          when_full: block

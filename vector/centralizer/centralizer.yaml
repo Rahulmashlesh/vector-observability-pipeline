@@ -1,8 +1,6 @@
 # Vector centralizer tier — single Deployment in the logging namespace.
-# Stage 2: receives from all agent pods via the Vector native protocol,
-# enriches with node-tier metadata, and writes to console (dummy sink).
-# The console sink is replaced in Stage 3 with a vector sink forwarding
-# to the egress tier.
+# Stage 3: receives from all agent pods via the Vector native protocol,
+# enriches with pipeline metadata, and forwards to the egress tier.
 
 data_dir: /vector-data-dir
 
@@ -21,13 +19,18 @@ transforms:
     source: |
       # The agent already set cluster_name and carried kubernetes.* metadata.
       # Add a pipeline_tier tag so queries can filter to what the
-      # centralizer specifically processed (useful for debugging fan-in).
+      # centralizer specifically processed.
       .pipeline_tier = "centralizer"
 
 sinks:
-  console:
-    type: console
+  egress:
+    type: vector
     inputs:
       - enrich_pipeline_metadata
-    encoding:
-      codec: json
+    address: "vector-egress.logging.svc.cluster.local:6000"
+    version: "2"
+    # Buffer to handle egress restarts without dropping events.
+    buffer:
+      type: memory
+      max_events: 10000
+      when_full: block

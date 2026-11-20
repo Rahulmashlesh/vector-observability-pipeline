@@ -1,0 +1,68 @@
+# Vector egress tier — single Deployment in the logging namespace.
+# Stage 3: receives from the centralizer via the Vector native protocol,
+# stamps pipeline_tier=egress, and ships to Loki via the HTTP push API.
+
+data_dir: /vector-data-dir
+
+api:
+  enabled: true
+  address: "0.0.0.0:8686"
+
+# Accept log streams from the centralizer.
+sources:
+  centralizer_input:
+    type: vector
+    address: "0.0.0.0:6000"
+    version: "2"
+
+transforms:
+  enrich_egress_metadata:
+    type: remap
+    inputs:
+      - centralizer_input
+    source: |
+      # Mark which tier produced this event.
+      .pipeline_tier = "egress"
+
+      # Loki requires a string message field. Use the existing message if
+      # present, otherwise JSON-encode the full event as the log line.
+      if !exists(.message) || is_null(.message) {
+        .message = encode_json(.)
+      }
+
+      # Ensure required Loki label fields are strings (Loki rejects non-string labels).
+      .kubernetes.namespace = to_string(.kubernetes.namespace_labels."kubernetes.io/metadata.name") ?? to_string(.kubernetes.pod_namespace) ?? "unknown"
+      .kubernetes.pod = to_string(.kubernetes.pod_name) ?? "unknown"
+      .kubernetes.container = to_string(.kubernetes.container_name) ?? "unknown"
+      .kubernetes.node = to_string(.kubernetes.pod_node_name) ?? to_string(."node_name") ?? "unknown"
+
+sinks:
+  loki:
+    type: loki
+    inputs:
+      - enrich_egress_metadata
+    endpoint: "http://loki.monitoring.svc.cluster.local:3100"
+    encoding:
+      codec: json
+    # Labels indexed by Loki for fast filtering.
+    labels:
+      cluster: "endurance"
+      namespace: "{{ kubernetes.namespace }}"
+      pod: "{{ kubernetes.pod }}"
+      container: "{{ kubernetes.container }}"
+      node: "{{ kubernetes.node }}"
+      pipeline_tier: "egress"
+    # Batch for efficiency — flush every 5s or when 1MB is accumulated.
+    batch:
+      max_bytes: 1048576
+      timeout_secs: 5
+    # Retry on transient Loki errors.
+    request:
+      retry_attempts: 5
+      retry_initial_backoff_secs: 1
+      retry_max_duration_secs: 30
+    # Buffer to disk so a Loki restart doesn't drop events.
+    buffer:
+      type: disk
+      max_size: 536870912  # 512MB
+      when_full: block

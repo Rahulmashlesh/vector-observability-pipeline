@@ -8,3 +8,6 @@ resources:
   - centralizer/configmap.yaml
   - centralizer/service.yaml
   - centralizer/deployment.yaml
+  - egress/configmap.yaml
+  - egress/service.yaml
+  - egress/deployment.yaml
