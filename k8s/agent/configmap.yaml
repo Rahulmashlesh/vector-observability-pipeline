@@ -17,17 +17,28 @@ data:
           - /var/log/pods/logging_*/**
 
     transforms:
-      add_cluster_metadata:
+      enrich_metadata:
         type: remap
         inputs:
           - kubernetes_logs
         source: |
           .cluster_name = "endurance"
 
+          .namespace       = to_string(.kubernetes.pod_namespace)       ?? "unknown"
+          .pod_name        = to_string(.kubernetes.pod_name)            ?? "unknown"
+          .node_name       = to_string(.kubernetes.pod_node_name)       ?? "unknown"
+          .container       = to_string(.kubernetes.container_name)      ?? "unknown"
+          .container_image = to_string(.kubernetes.container_image)     ?? "unknown"
+          .stream          = to_string(.stream)                         ?? "stdout"
+
+          .app = to_string(.kubernetes.pod_labels.app) ??
+                 to_string(.kubernetes.pod_labels."app.kubernetes.io/name") ??
+                 .pod_name
+
     sinks:
       centralizer:
         type: vector
         inputs:
-          - add_cluster_metadata
+          - enrich_metadata
         address: "vector-centralizer.logging.svc.cluster.local:6000"
         version: "2"

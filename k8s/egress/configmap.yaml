@@ -32,11 +32,6 @@ data:
             .message = encode_json(.)
           }
 
-          .kubernetes.namespace = to_string(.kubernetes.namespace_labels."kubernetes.io/metadata.name") ?? to_string(.kubernetes.pod_namespace) ?? "unknown"
-          .kubernetes.pod = to_string(.kubernetes.pod_name) ?? "unknown"
-          .kubernetes.container = to_string(.kubernetes.container_name) ?? "unknown"
-          .kubernetes.node = to_string(.kubernetes.pod_node_name) ?? to_string(."node_name") ?? "unknown"
-
     sinks:
       loki:
         type: loki
@@ -47,10 +42,12 @@ data:
           codec: json
         labels:
           cluster: "endurance"
-          namespace: "{{ kubernetes.namespace }}"
-          pod: "{{ kubernetes.pod }}"
-          container: "{{ kubernetes.container }}"
-          node: "{{ kubernetes.node }}"
+          namespace: "{{ namespace }}"
+          pod: "{{ pod_name }}"
+          container: "{{ container }}"
+          node: "{{ node_name }}"
+          app: "{{ app }}"
+          stream: "{{ stream }}"
           pipeline_tier: "egress"
         batch:
           max_bytes: 1048576

@@ -1,6 +1,10 @@
 # Vector egress tier — single Deployment in the logging namespace.
-# Stage 3: receives from the centralizer via the Vector native protocol,
-# stamps pipeline_tier=egress, and ships to Loki via the HTTP push API.
+# Stage 3: receives from the centralizer, stamps pipeline_tier=egress,
+# and ships to Loki via the HTTP push API.
+#
+# Metadata fields (namespace, pod_name, node_name, container, container_image,
+# stream, app, cluster_name) are pre-flattened by the agent tier — no
+# secondary extraction needed here.
 
 data_dir: /vector-data-dir
 
@@ -30,12 +34,6 @@ transforms:
         .message = encode_json(.)
       }
 
-      # Ensure required Loki label fields are strings (Loki rejects non-string labels).
-      .kubernetes.namespace = to_string(.kubernetes.namespace_labels."kubernetes.io/metadata.name") ?? to_string(.kubernetes.pod_namespace) ?? "unknown"
-      .kubernetes.pod = to_string(.kubernetes.pod_name) ?? "unknown"
-      .kubernetes.container = to_string(.kubernetes.container_name) ?? "unknown"
-      .kubernetes.node = to_string(.kubernetes.pod_node_name) ?? to_string(."node_name") ?? "unknown"
-
 sinks:
   loki:
     type: loki
@@ -44,15 +42,18 @@ sinks:
     endpoint: "http://loki.monitoring.svc.cluster.local:3100"
     encoding:
       codec: json
-    # Labels indexed by Loki for fast filtering.
+    # Labels indexed by Loki for fast filtering in Grafana.
+    # app + namespace are the two most useful for dashboard queries.
     labels:
       cluster: "endurance"
-      namespace: "{{ kubernetes.namespace }}"
-      pod: "{{ kubernetes.pod }}"
-      container: "{{ kubernetes.container }}"
-      node: "{{ kubernetes.node }}"
+      namespace: "{{ namespace }}"
+      pod: "{{ pod_name }}"
+      container: "{{ container }}"
+      node: "{{ node_name }}"
+      app: "{{ app }}"
+      stream: "{{ stream }}"
       pipeline_tier: "egress"
-    # Batch for efficiency — flush every 5s or when 1MB is accumulated.
+    # Batch for efficiency — flush every 5s or when 1 MB is accumulated.
     batch:
       max_bytes: 1048576
       timeout_secs: 5
@@ -64,5 +65,5 @@ sinks:
     # Buffer to disk so a Loki restart doesn't drop events.
     buffer:
       type: disk
-      max_size: 536870912  # 512MB
+      max_size: 536870912  # 512 MB
       when_full: block
