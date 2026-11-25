@@ -32,6 +32,10 @@ data:
             .message = encode_json(.)
           }
 
+          del(.kubernetes)
+          del(.file)
+          del(.source_type)
+
     sinks:
       loki:
         type: loki

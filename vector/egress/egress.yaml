@@ -1,10 +1,10 @@
 # Vector egress tier — single Deployment in the logging namespace.
 # Stage 3: receives from the centralizer, stamps pipeline_tier=egress,
-# and ships to Loki via the HTTP push API.
+# strips redundant fields, and ships to Loki via the HTTP push API.
 #
 # Metadata fields (namespace, pod_name, node_name, container, container_image,
-# stream, app, cluster_name) are pre-flattened by the agent tier — no
-# secondary extraction needed here.
+# stream, app, cluster_name) are pre-flattened by the agent tier — the raw
+# .kubernetes.* blob is therefore redundant and stripped here before storage.
 
 data_dir: /vector-data-dir
 
@@ -12,7 +12,6 @@ api:
   enabled: true
   address: "0.0.0.0:8686"
 
-# Accept log streams from the centralizer.
 sources:
   centralizer_input:
     type: vector
@@ -28,11 +27,24 @@ transforms:
       # Mark which tier produced this event.
       .pipeline_tier = "egress"
 
-      # Loki requires a string message field. Use the existing message if
-      # present, otherwise JSON-encode the full event as the log line.
+      # Ensure a string message field for Loki.
       if !exists(.message) || is_null(.message) {
         .message = encode_json(.)
       }
+
+      # Strip fields that are redundant or not useful in stored logs:
+      #
+      #  .kubernetes   — the full nested metadata blob; every useful field
+      #                  (namespace, pod_name, node_name, container,
+      #                   container_image, app, stream) was already flattened
+      #                  to top-level by the agent. Storing both wastes ~80%
+      #                  of each event's bytes.
+      #  .file         — raw host path (/var/log/pods/.../N.log); meaningless
+      #                  once the log is in Loki.
+      #  .source_type  — always "kubernetes_logs"; adds nothing.
+      del(.kubernetes)
+      del(.file)
+      del(.source_type)
 
 sinks:
   loki:
@@ -42,8 +54,6 @@ sinks:
     endpoint: "http://loki.monitoring.svc.cluster.local:3100"
     encoding:
       codec: json
-    # Labels indexed by Loki for fast filtering in Grafana.
-    # app + namespace are the two most useful for dashboard queries.
     labels:
       cluster: "endurance"
       namespace: "{{ namespace }}"
@@ -53,16 +63,13 @@ sinks:
       app: "{{ app }}"
       stream: "{{ stream }}"
       pipeline_tier: "egress"
-    # Batch for efficiency — flush every 5s or when 1 MB is accumulated.
     batch:
       max_bytes: 1048576
       timeout_secs: 5
-    # Retry on transient Loki errors.
     request:
       retry_attempts: 5
       retry_initial_backoff_secs: 1
       retry_max_duration_secs: 30
-    # Buffer to disk so a Loki restart doesn't drop events.
     buffer:
       type: disk
       max_size: 536870912  # 512 MB
