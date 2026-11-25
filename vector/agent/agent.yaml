@@ -19,9 +19,7 @@ transforms:
       # Static cluster identifier.
       .cluster_name = "endurance"
 
-      # Flatten Kubernetes metadata to top-level fields so every downstream
-      # tier (centralizer, egress, Loki) can access them without digging into
-      # the nested .kubernetes.* map.  All fields are guaranteed strings.
+      # Flatten Kubernetes metadata to top-level fields.
       .namespace       = to_string(.kubernetes.pod_namespace)       ?? "unknown"
       .pod_name        = to_string(.kubernetes.pod_name)            ?? "unknown"
       .node_name       = to_string(.kubernetes.pod_node_name)       ?? "unknown"
@@ -29,18 +27,38 @@ transforms:
       .container_image = to_string(.kubernetes.container_image)     ?? "unknown"
       .stream          = to_string(.stream)                         ?? "stdout"
 
-      # Best-effort app label — plain "app" label first, then the recommended
-      # "app.kubernetes.io/name" convention, then fall back to the pod name so
-      # every event always has a value.
-      .app = to_string(.kubernetes.pod_labels.app) ??
-             to_string(.kubernetes.pod_labels."app.kubernetes.io/name") ??
-             .pod_name
+      # Resolve the app label with explicit type checks so null values
+      # do NOT silently satisfy the chain (to_string(null) == "null",
+      # so ?? never fires — is_string() avoids the trap entirely).
+      #
+      # Priority order:
+      #   1. plain "app" label            (most deployments)
+      #   2. "app.kubernetes.io/name"     (ArgoCD, Vector, Narada, etc.)
+      #   3. "app.kubernetes.io/component" (secondary k8s convention)
+      #   4. "job-name" stripped of its   (CronJob / batch workers)
+      #      trailing numeric timestamp
+      #   5. "unknown" so every event has a value
+      pod_labels = .kubernetes.pod_labels
+
+      .app = if is_string(pod_labels.app) {
+        pod_labels.app
+      } else if is_string(pod_labels."app.kubernetes.io/name") {
+        pod_labels."app.kubernetes.io/name"
+      } else if is_string(pod_labels."app.kubernetes.io/component") {
+        pod_labels."app.kubernetes.io/component"
+      } else if is_string(pod_labels."job-name") {
+        # Strip the numeric CronJob timestamp suffix so all runs of the
+        # same job share one label value instead of exploding cardinality.
+        # e.g. "narada-broadcast-worker-29926460" → "narada-broadcast-worker"
+        replace(pod_labels."job-name", r'-\d+$', "")
+      } else {
+        "unknown"
+      }
 
 sinks:
   centralizer:
     type: vector
     inputs:
       - enrich_metadata
-    # DNS name of the centralizer Service in the same namespace.
     address: "vector-centralizer.logging.svc.cluster.local:6000"
     version: "2"

@@ -31,9 +31,19 @@ data:
           .container_image = to_string(.kubernetes.container_image)     ?? "unknown"
           .stream          = to_string(.stream)                         ?? "stdout"
 
-          .app = to_string(.kubernetes.pod_labels.app) ??
-                 to_string(.kubernetes.pod_labels."app.kubernetes.io/name") ??
-                 .pod_name
+          pod_labels = .kubernetes.pod_labels
+
+          .app = if is_string(pod_labels.app) {
+            pod_labels.app
+          } else if is_string(pod_labels."app.kubernetes.io/name") {
+            pod_labels."app.kubernetes.io/name"
+          } else if is_string(pod_labels."app.kubernetes.io/component") {
+            pod_labels."app.kubernetes.io/component"
+          } else if is_string(pod_labels."job-name") {
+            replace(pod_labels."job-name", r'-\d+$', "")
+          } else {
+            "unknown"
+          }
 
     sinks:
       centralizer:
