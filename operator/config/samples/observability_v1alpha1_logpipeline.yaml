@@ -1,0 +1,16 @@
+apiVersion: observability.endurance.io/v1alpha1
+kind: LogPipeline
+metadata:
+  name: cluster-logs
+  namespace: logging
+spec:
+  agent:
+    # Namespaces to suppress entirely — the pipeline's own namespace
+    # (logging) is always excluded implicitly.
+    excludeNamespaces:
+      - newrelic   # New Relic otel-collector generates very high log volume
+  egress:
+    loki:
+      endpoint: "http://loki.monitoring.svc.cluster.local:3100"
+      extraLabels:
+        environment: homelab
