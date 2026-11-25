@@ -19,9 +19,7 @@ transforms:
       # Static cluster identifier.
       .cluster_name = "endurance"
 
-      # Flatten Kubernetes metadata to top-level fields so every downstream
-      # tier (centralizer, egress, Loki) can access them without digging into
-      # the nested .kubernetes.* map.  All fields are guaranteed strings.
+      # Flatten Kubernetes metadata to top-level fields.
       .namespace       = to_string(.kubernetes.pod_namespace)       ?? "unknown"
       .pod_name        = to_string(.kubernetes.pod_name)            ?? "unknown"
       .node_name       = to_string(.kubernetes.pod_node_name)       ?? "unknown"
@@ -29,18 +27,41 @@ transforms:
       .container_image = to_string(.kubernetes.container_image)     ?? "unknown"
       .stream          = to_string(.stream)                         ?? "stdout"
 
-      # Best-effort app label — plain "app" label first, then the recommended
-      # "app.kubernetes.io/name" convention, then fall back to the pod name so
-      # every event always has a value.
-      .app = to_string(.kubernetes.pod_labels.app) ??
-             to_string(.kubernetes.pod_labels."app.kubernetes.io/name") ??
-             .pod_name
+      # Resolve the app label. is_string() is used throughout because
+      # to_string(null) returns "null" (not an error), making ?? useless.
+      #
+      # Fallback chain (each convention covers a different set of workloads):
+      #   1. "app"                     plain label — most Deployments
+      #   2. "app.kubernetes.io/name"  recommended convention — ArgoCD, Narada, Vector…
+      #   3. "app.kubernetes.io/component" secondary k8s convention
+      #   4. "k8s-app"                 kube-system convention — coredns, metrics-server
+      #   5. "longhorn.io/component"   Longhorn internals — engine-image, instance-manager
+      #   6. "job-name" stripped       CronJob / batch workers (drop numeric timestamp)
+      #   7. abort                     No usable label → drop the event entirely.
+      #                                Covers ad-hoc test pods (curl-test, etc.) that
+      #                                have no meaningful identity and are not worth storing.
+      pod_labels = .kubernetes.pod_labels
+
+      .app = if is_string(pod_labels.app) {
+        pod_labels.app
+      } else if is_string(pod_labels."app.kubernetes.io/name") {
+        pod_labels."app.kubernetes.io/name"
+      } else if is_string(pod_labels."app.kubernetes.io/component") {
+        pod_labels."app.kubernetes.io/component"
+      } else if is_string(pod_labels."k8s-app") {
+        pod_labels."k8s-app"
+      } else if is_string(pod_labels."longhorn.io/component") {
+        pod_labels."longhorn.io/component"
+      } else if is_string(pod_labels."job-name") {
+        replace(pod_labels."job-name", r'-\d+$', "")
+      } else {
+        abort
+      }
 
 sinks:
   centralizer:
     type: vector
     inputs:
       - enrich_metadata
-    # DNS name of the centralizer Service in the same namespace.
     address: "vector-centralizer.logging.svc.cluster.local:6000"
     version: "2"
