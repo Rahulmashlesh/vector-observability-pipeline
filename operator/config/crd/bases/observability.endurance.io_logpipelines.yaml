@@ -1,0 +1,187 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: logpipelines.observability.endurance.io
+spec:
+  group: observability.endurance.io
+  names:
+    kind: LogPipeline
+    listKind: LogPipelineList
+    plural: logpipelines
+    singular: logpipeline
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.conditions[?(@.type=='Ready')].status
+      name: Ready
+      type: string
+    - jsonPath: .status.configHash
+      name: Config-Hash
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          LogPipeline is the Schema for the logpipelines API.
+          A single cluster-scoped LogPipeline CR is the declarative source of
+          truth for the Vector pipeline configuration; the operator keeps the
+          agent and egress ConfigMaps in sync with it.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              LogPipelineSpec defines the desired state of the Vector log pipeline.
+              The operator reconciles this spec into ConfigMaps for the agent and
+              egress tiers, and annotates the DaemonSet/Deployments to trigger a
+              rolling restart whenever the config changes.
+            properties:
+              agent:
+                description: Agent configures the DaemonSet tier that collects logs
+                  from each node.
+                properties:
+                  excludeNamespaces:
+                    description: |-
+                      ExcludeNamespaces lists namespaces whose logs must not be collected.
+                      The pipeline's own namespace (logging) is always excluded implicitly —
+                      omitting it from this list does not re-enable it.
+                    items:
+                      type: string
+                    type: array
+                type: object
+              egress:
+                description: Egress configures the Deployment tier that ships logs
+                  to a destination.
+                properties:
+                  loki:
+                    description: Loki configures the Loki sink.
+                    properties:
+                      endpoint:
+                        description: |-
+                          Endpoint is the Loki push API base URL.
+                          Example: "http://loki.monitoring.svc.cluster.local:3100"
+                        minLength: 1
+                        type: string
+                      extraLabels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          ExtraLabels adds static key/value labels to every Loki stream, in
+                          addition to the labels set by the pipeline (cluster, namespace, pod,
+                          container, node, app, stream, pipeline_tier).
+                        type: object
+                    required:
+                    - endpoint
+                    type: object
+                required:
+                - loki
+                type: object
+            required:
+            - egress
+            type: object
+          status:
+            description: LogPipelineStatus defines the observed state of LogPipeline.
+            properties:
+              conditions:
+                description: Conditions represents the latest available observations
+                  of the pipeline's state.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              configHash:
+                description: |-
+                  ConfigHash is the SHA-256 of the last reconciled config payload.
+                  It appears as the value of the
+                  observability.endurance.io/config-hash annotation on the agent
+                  DaemonSet and egress Deployment so that a spec change automatically
+                  triggers a rolling restart.
+                type: string
+              observedGeneration:
+                description: ObservedGeneration is the .metadata.generation that was
+                  last successfully reconciled.
+                format: int64
+                type: integer
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
