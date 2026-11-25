@@ -8,6 +8,15 @@
 
 data_dir: /vector-data-dir
 
+# Secrets come from the newrelic-license k8s Secret mounted as files
+# (created manually, never committed). Vector >= 0.57 disables ${ENV}
+# interpolation by default, so the directory backend is used instead.
+secret:
+  newrelic:
+    type: directory
+    path: /etc/vector-secrets/newrelic
+    remove_trailing_whitespace: true
+
 api:
   enabled: true
   address: "0.0.0.0:8686"
@@ -32,6 +41,42 @@ transforms:
       # present, otherwise JSON-encode the full event as the log line.
       if !exists(.message) || is_null(.message) {
         .message = encode_json(.)
+      }
+
+  # OTLP-shaped copy of each event for New Relic. Loki keeps using
+  # enrich_egress_metadata untouched. The otlp codec serialises the
+  # resourceLogs structure built here into OTLP protobuf.
+  nr_otlp_logs:
+    type: remap
+    inputs:
+      - enrich_egress_metadata
+    source: |
+      msg = string(.message) ?? encode_json(.)
+      ts = to_unix_timestamp(timestamp(.timestamp) ?? now(), unit: "nanoseconds") ?? 0
+      res = [
+        {"key": "service.name", "value": {"stringValue": string(.app) ?? "unknown"}},
+        {"key": "k8s.cluster.name", "value": {"stringValue": "endurance"}},
+        {"key": "k8s.namespace.name", "value": {"stringValue": string(.namespace) ?? ""}},
+        {"key": "k8s.pod.name", "value": {"stringValue": string(.pod_name) ?? ""}},
+        {"key": "k8s.node.name", "value": {"stringValue": string(.node_name) ?? ""}},
+        {"key": "k8s.container.name", "value": {"stringValue": string(.container) ?? ""}},
+      ]
+      attrs = [
+        {"key": "stream", "value": {"stringValue": string(.stream) ?? ""}},
+        {"key": "pipeline_tier", "value": {"stringValue": "egress"}},
+      ]
+      . = {
+        "resourceLogs": [{
+          "resource": {"attributes": res},
+          "scopeLogs": [{
+            "scope": {"name": "vector-egress"},
+            "logRecords": [{
+              "timeUnixNano": to_string(ts),
+              "body": {"stringValue": msg},
+              "attributes": attrs
+            }]
+          }]
+        }]
       }
 
 sinks:
@@ -67,3 +112,24 @@ sinks:
       type: disk
       max_size: 536870912  # 512 MB
       when_full: block
+
+  # New Relic OTLP/HTTP (protobuf), US region. Key comes from the
+  # newrelic-license Secret via the "newrelic" secret backend above.
+  newrelic:
+    type: opentelemetry
+    inputs:
+      - nr_otlp_logs
+    protocol:
+      type: http
+      uri: "https://otlp.nr-data.net:4318/v1/logs"
+      method: post
+      encoding:
+        codec: otlp
+      framing:
+        method: bytes
+      request:
+        headers:
+          api-key: "SECRET[newrelic.license-key]"
+      batch:
+        max_bytes: 1048576
+        timeout_secs: 5

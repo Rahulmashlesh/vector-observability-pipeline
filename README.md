@@ -31,6 +31,22 @@ staged build plan.
 - **Operator** (Stage 4): declarative config via CRD, replacing hand-edited
   ConfigMaps once the hardcoded pipeline is proven.
 
+## New Relic sink (egress)
+
+The egress tier also ships logs to New Relic over OTLP/HTTP protobuf
+(`https://otlp.nr-data.net:4318/v1/logs`, US region), in addition to Loki.
+The license key is read from the `newrelic-license` Secret, which is mounted
+into the egress pod and read through Vector's `directory` secret backend
+(`SECRET[newrelic.license-key]`). The Secret is not in git; create it by hand
+before syncing:
+
+```sh
+kubectl -n logging create secret generic newrelic-license \
+  --from-literal=license-key=<NEW_RELIC_LICENSE_KEY>
+```
+
+Without the Secret the egress pod stays in `ContainerCreating`.
+
 ## Status
 
 Early scaffold — see [`intent.md`](intent.md) for current stage.

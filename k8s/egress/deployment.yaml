@@ -32,7 +32,7 @@ spec:
           effect: "NoSchedule"
       containers:
         - name: vector
-          image: timberio/vector:0.42.0-debian
+          image: timberio/vector:0.62.0-debian
           args:
             - "--config"
             - "/etc/vector/egress.yaml"
@@ -54,6 +54,9 @@ spec:
               mountPath: /etc/vector
             - name: data
               mountPath: /vector-data-dir
+            - name: newrelic-license
+              mountPath: /etc/vector-secrets/newrelic
+              readOnly: true
           readinessProbe:
             httpGet:
               path: /health
@@ -72,3 +75,7 @@ spec:
             name: vector-egress-config
         - name: data
           emptyDir: {}
+        # Secret must be created manually (see README); never committed.
+        - name: newrelic-license
+          secret:
+            secretName: newrelic-license
