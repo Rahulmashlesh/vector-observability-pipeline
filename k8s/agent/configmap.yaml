@@ -44,7 +44,7 @@ data:
           } else if is_string(pod_labels."longhorn.io/component") {
             pod_labels."longhorn.io/component"
           } else if is_string(pod_labels."job-name") {
-            replace(pod_labels."job-name", r'-\d+$', "")
+            replace(to_string!(pod_labels."job-name"), r'-\d+$', "")
           } else {
             abort
           }
