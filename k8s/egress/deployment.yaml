@@ -32,7 +32,7 @@ spec:
           effect: "NoSchedule"
       containers:
         - name: vector
-          image: timberio/vector:0.42.0-debian
+          image: timberio/vector:0.42.0-distroless-static
           args:
             - "--config"
             - "/etc/vector/egress.yaml"
