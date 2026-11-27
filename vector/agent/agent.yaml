@@ -6,6 +6,10 @@ data_dir: /vector-data-dir
 sources:
   kubernetes_logs:
     type: kubernetes_logs
+    # Drain a rotated log file before reading the new 0.log of the same
+    # container. Without this, under backpressure Vector reads both at once
+    # and Loki rejects the older lines as "too far behind" (400).
+    oldest_first: true
     # Exclude our own logging namespace to avoid a feedback loop.
     exclude_paths_glob_patterns:
       - /var/log/pods/logging_*/**
